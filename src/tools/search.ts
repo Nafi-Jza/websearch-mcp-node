@@ -1,4 +1,4 @@
-import { launchBrowser } from '../browser.js';
+import { getBrowserContext } from '../browser.js';
 import { logActivity } from '../utils/logger.js';
 
 export async function runSearch(query: string): Promise<string> {
@@ -7,11 +7,9 @@ export async function runSearch(query: string): Promise<string> {
     // IMPORTANT: We MUST use headed mode (true) here.
     // Headless Chromium ignores the UI-configured custom DNS over HTTPS settings.
     // By running headed, we inherit the Secure DNS setting which bypasses Internet Positif block.
-    const context = await launchBrowser(true);
+    const context = await getBrowserContext(true);
 
-    // Use the default page created by launchPersistentContext, or make a new one
-    const pages = context.pages();
-    const page = pages.length > 0 ? pages[0] : await context.newPage();
+    const page = await context.newPage();
 
     try {
         const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
@@ -66,7 +64,7 @@ export async function runSearch(query: string): Promise<string> {
         logActivity('search-error', `Search failed: ${(error as Error).message}`);
         return JSON.stringify({ error: `Search failed: ${(error as Error).message}` });
     } finally {
-        logActivity('search', 'Closing browser context to clean up resources.');
-        await context.close().catch(() => {});
+        logActivity('search', 'Closing search tab to clean up memory.');
+        await page.close().catch(() => {});
     }
 }

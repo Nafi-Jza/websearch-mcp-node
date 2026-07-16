@@ -1,13 +1,14 @@
-import { launchBrowser } from '../browser.js';
+import { getBrowserContext } from '../browser.js';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
 import { logActivity, saveOutput } from '../utils/logger.js';
 
 export async function scrapePage(url: string): Promise<string> {
-    const context = await launchBrowser(false);
-    const pages = context.pages();
-    const page = pages.length > 0 ? pages[0] : await context.newPage();
+    // We now always request 'headed: true' so we share the single persistent profile
+    // uniformly with search, preventing any weird context switching or blocked connections.
+    const context = await getBrowserContext(true);
+    const page = await context.newPage();
 
     try {
         logActivity('scrape', `Scraping URL: ${url}`);
@@ -66,7 +67,7 @@ export async function scrapePage(url: string): Promise<string> {
         logActivity('scrape-error', `Scraping failed: ${(error as Error).message}`);
         return `Error scraping ${url}: ${(error as Error).message}`;
     } finally {
-        logActivity('scrape', 'Closing browser context to clean up resources.');
-        await context.close().catch(() => {});
+        logActivity('scrape', 'Closing scrape tab to clean up resources.');
+        await page.close().catch(() => {});
     }
 }

@@ -1,4 +1,4 @@
-import { launchBrowser, USER_AGENT, PROFILE_DIR, getBravePath } from '../browser.js';
+import { getBrowserContext, USER_AGENT, PROFILE_DIR, getBravePath } from '../browser.js';
 import { chromium } from 'playwright';
 import { logActivity, saveOutput } from '../utils/logger.js';
 
@@ -107,9 +107,8 @@ function processTranscript(transcriptItems: {text: string, start: number}[]) {
 async function fetchTranscriptWithPlaywright(videoId: string, requestedLang?: string) {
     logActivity('youtube', 'Direct fetch failed or blocked. Launching browser fallback...');
 
-    const context = await launchBrowser(false);
-    const pages = context.pages();
-    const page = pages.length > 0 ? pages[0] : await context.newPage();
+    const context = await getBrowserContext(false);
+    const page = await context.newPage();
 
     try {
         const url = `https://www.youtube.com/watch?v=${videoId}`;
@@ -154,8 +153,8 @@ async function fetchTranscriptWithPlaywright(videoId: string, requestedLang?: st
             captionTracks: data.captionTracks,
         };
     } finally {
-        logActivity('youtube', 'Closing browser context to clean up resources.');
-        await context.close().catch(() => {});
+        logActivity('youtube', 'Closing youtube tab to clean up resources.');
+        await page.close().catch(() => {});
     }
 }
 
