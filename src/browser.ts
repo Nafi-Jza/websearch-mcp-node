@@ -2,51 +2,32 @@ import { chromium, BrowserContext } from 'playwright';
 import path from 'path';
 import { logActivity } from './utils/logger.js';
 
-// Define standard paths and constants
 export const PROFILE_DIR = path.join(process.cwd(), 'browser-profile');
 export const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
 let browserContext: BrowserContext | null = null;
-let isHeaded = false;
+let browserLaunchPromise: Promise<BrowserContext> | null = null;
 
-// Attempt to find Brave Browser based on common Windows paths
-export function getBravePath(): string | undefined {
-    const paths = [
-        "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
-        "C:\\Program Files (x86)\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
-        `${process.env.LOCALAPPDATA}\\BraveSoftware\\Brave-Browser\\Application\\brave.exe`
-    ];
-
-    for (const p of paths) {
-        try {
-            if (require('fs').existsSync(p)) return p;
-        } catch (e) {
-            // ignore
-        }
-    }
-    return undefined; // Let playwright use its bundled chromium
-}
-
-export async function getBrowserContext(headed: boolean = false): Promise<BrowserContext> {
-    // Self-healing check: if we have a context, make sure it's actually alive
+export async function getBrowserContext(headed: boolean = true): Promise<BrowserContext> {
+    // Self-healing: if context exists but is dead, reset
     if (browserContext) {
         try {
-            browserContext.pages(); // This throws if the browser process died or was closed manually
+            browserContext.pages();
+            return browserContext;
         } catch (e) {
-            logActivity('browser-warning', 'Existing browser context is dead. Resetting...');
+            logActivity('browser-warning', 'Existing context dead, resetting...');
             browserContext = null;
         }
     }
 
-    // FIX: Removed the aggressive isHeaded !== headed check.
-    // If a context is already running (e.g., search started a headed one),
-    // and scrape asks for a headless one, we will just return the existing headed one.
-    // This prevents tools from yanking the browser out from under each other concurrently!
+    // If a launch is already in progress (concurrent calls), wait for it
+    if (browserLaunchPromise) {
+        logActivity('browser', 'Launch already in progress, waiting...');
+        return browserLaunchPromise;
+    }
 
-    if (!browserContext) {
-        const executablePath = getBravePath();
-
-        logActivity('browser', `Launching persistent context... (Headed: ${headed})`);
+    browserLaunchPromise = (async () => {
+        logActivity('browser', `Launching persistent context... (Headed: ${headed}) Using Playwright Chromium | Profile: ${PROFILE_DIR}`);
 
         const launchOptions: any = {
             headless: !headed,
@@ -61,33 +42,35 @@ export async function getBrowserContext(headed: boolean = false): Promise<Browse
             ]
         };
 
-        if (executablePath) {
-            launchOptions.executablePath = executablePath;
-        }
-
         try {
-            browserContext = await chromium.launchPersistentContext(PROFILE_DIR, launchOptions);
-            isHeaded = headed;
+            const ctx = await chromium.launchPersistentContext(PROFILE_DIR, launchOptions);
+            browserContext = ctx;
             logActivity('browser', "Browser context launched successfully.");
 
-            // Listen for context close and clear the global reference
-            browserContext.on('close', () => {
-                logActivity('browser', "Browser context was closed by user or OS.");
+            ctx.on('close', () => {
+                logActivity('browser', "Browser context closed by user/OS.");
                 browserContext = null;
+                browserLaunchPromise = null;
             });
-        } catch (error) {
-            logActivity('browser-error', `Failed to launch persistent context. Make sure no other instances are using this profile! Error: ${(error as Error).message}`);
-            throw new Error(`Failed to launch browser: ${(error as Error).message}`);
-        }
-    }
 
-    return browserContext;
+            return ctx;
+        } catch (error) {
+            logActivity('browser-error', `Failed to launch: ${(error as Error).message}`);
+            browserLaunchPromise = null;
+            throw new Error(`Failed to launch browser: ${(error as Error).message}`);
+        } finally {
+            browserLaunchPromise = null;
+        }
+    })();
+
+    return browserLaunchPromise;
 }
 
 export async function closeBrowserContext(): Promise<void> {
     if (browserContext) {
         await browserContext.close().catch(() => {});
         browserContext = null;
+        browserLaunchPromise = null;
         logActivity('browser', "Browser context closed gracefully.");
     }
 }

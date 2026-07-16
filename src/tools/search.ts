@@ -4,11 +4,10 @@ import { logActivity } from '../utils/logger.js';
 export async function runSearch(query: string): Promise<string> {
     logActivity('search', `Starting search query: "${query}"`);
 
-    // IMPORTANT: We MUST use headed mode (true) here.
-    // Headless Chromium ignores the UI-configured custom DNS over HTTPS settings.
-    // By running headed, we inherit the Secure DNS setting which bypasses Internet Positif block.
+    // IMPORTANT: Must be headed for Secure DNS setting to apply and bypass Internet Positif
     const context = await getBrowserContext(true);
 
+    // Always create a fresh tab - never reuse pages[0] (fragile internal page)
     const page = await context.newPage();
 
     try {
@@ -17,27 +16,23 @@ export async function runSearch(query: string): Promise<string> {
 
         await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-        // Check if we got intercepted by Internet Positif
         const html = await page.content();
         if (html.includes('Internet Positif') || html.includes('trustpositif')) {
-             logActivity('search-error', `Blocked by Internet Positif`);
-             return JSON.stringify({ error: "Search blocked by Internet Positif even with profile. The secure DNS setting might not be applying." });
+            logActivity('search-error', `Blocked by Internet Positif`);
+            return JSON.stringify({ error: "Search blocked by Internet Positif even with profile." });
         }
 
-        // Wait for results
         try {
             await page.waitForSelector('.result', { timeout: 10000 });
         } catch (e) {
             logActivity('search-result', `No results found.`);
-            return JSON.stringify([]); // No results found
+            return JSON.stringify([]);
         }
 
-        // Extract DuckDuckGo results
         const results = await page.$$eval('.result', (elements: any[]) => {
             return elements.map(el => {
                 const titleLinkEl = el.querySelector('.result__title a');
                 const snippetEl = el.querySelector('.result__snippet');
-
                 if (titleLinkEl) {
                     let url = titleLinkEl.getAttribute('href') || '';
                     if (url.includes('uddg=')) {
@@ -45,9 +40,8 @@ export async function runSearch(query: string): Promise<string> {
                             const urlParams = new URLSearchParams(url.split('?')[1]);
                             const actualUrl = urlParams.get('uddg');
                             if (actualUrl) url = decodeURIComponent(actualUrl);
-                        } catch(e) {}
+                        } catch (e) {}
                     }
-
                     return {
                         title: titleLinkEl.textContent?.trim() || '',
                         url: url,
@@ -64,7 +58,7 @@ export async function runSearch(query: string): Promise<string> {
         logActivity('search-error', `Search failed: ${(error as Error).message}`);
         return JSON.stringify({ error: `Search failed: ${(error as Error).message}` });
     } finally {
-        logActivity('search', 'Closing search tab to clean up memory.');
+        logActivity('search', 'Closing search tab.');
         await page.close().catch(() => {});
     }
 }

@@ -1,12 +1,9 @@
-import { getBrowserContext, USER_AGENT, PROFILE_DIR, getBravePath } from '../browser.js';
-import { chromium } from 'playwright';
+import { getBrowserContext } from '../browser.js';
 import { logActivity, saveOutput } from '../utils/logger.js';
 
 function extractVideoId(target: string): string {
     const cleaned = target.trim();
-    if (/^[a-zA-Z0-9_-]{11}$/.test(cleaned)) {
-        return cleaned;
-    }
+    if (/^[a-zA-Z0-9_-]{11}$/.test(cleaned)) return cleaned;
     const regexes = [
         /(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/,
         /(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]{11})/,
@@ -23,49 +20,30 @@ function extractVideoId(target: string): string {
 function selectTrack(captionTracks: any[], requestedLang?: string) {
     let track = captionTracks.find((t: any) => t.languageCode === requestedLang);
     if (track) return { track, translate: false };
-
     if (requestedLang) {
         const baseLang = requestedLang.split('-')[0];
         track = captionTracks.find((t: any) => t.languageCode.startsWith(baseLang!));
         if (track) return { track, translate: false };
     }
-
     track = captionTracks.find((t: any) => t.languageCode === 'en');
     if (track) return { track, translate: false };
-
     track = captionTracks.find((t: any) => t.languageCode.startsWith('en'));
     if (track) return { track, translate: false };
-
-    if (requestedLang && captionTracks[0].isTranslatable) {
+    if (requestedLang && captionTracks[0]?.isTranslatable) {
         return { track: captionTracks[0], translate: true, targetLang: requestedLang };
     }
-
     return { track: captionTracks[0], translate: false };
 }
 
-async function fetchTranscriptXml(baseUrl: string, cookieString = '') {
-    const headers: any = {
-        'User-Agent': 'python-requests/2.31.0',
-        'Accept-Language': 'en-US,en;q=0.9',
-    };
-    if (cookieString) {
-        headers['Cookie'] = cookieString;
-    }
+async function fetchTranscriptXml(baseUrl: string) {
+    const headers: any = { 'User-Agent': 'python-requests/2.31.0', 'Accept-Language': 'en-US,en;q=0.9' };
     const response = await fetch(baseUrl, { headers });
-    if (!response.ok) {
-        throw new Error(`Failed to fetch transcript XML: HTTP ${response.status}`);
-    }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.text();
 }
 
 function decodeHtmlEntities(str: string) {
-    return str
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/&apos;/g, "'");
+    return str.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'");
 }
 
 function parseTranscriptXml(xmlText: string) {
@@ -80,42 +58,30 @@ function parseTranscriptXml(xmlText: string) {
     return result;
 }
 
-function processTranscript(transcriptItems: {text: string, start: number}[]) {
-    const texts = transcriptItems.map(item => item.text || '');
-    let fullText = texts.join(' ');
+function processTranscript(transcriptItems: { text: string, start: number }[]) {
+    let fullText = transcriptItems.map(item => item.text || '').join(' ');
     fullText = fullText.replace(/\[?\d+:\d+\]?/g, '');
-
     const sentences = fullText.split(/(?<=[.!?])\s+/);
     const paragraphs = [];
     let current = [];
-
     for (const sentence of sentences) {
         if (sentence.trim()) {
             current.push(sentence.trim());
-            if (current.length >= 3) {
-                paragraphs.push(current.join(' '));
-                current = [];
-            }
+            if (current.length >= 3) { paragraphs.push(current.join(' ')); current = []; }
         }
     }
-    if (current.length > 0) {
-        paragraphs.push(current.join(' '));
-    }
+    if (current.length > 0) paragraphs.push(current.join(' '));
     return paragraphs;
 }
 
 async function fetchTranscriptWithPlaywright(videoId: string, requestedLang?: string) {
-    logActivity('youtube', 'Direct fetch failed or blocked. Launching browser fallback...');
-
+    logActivity('youtube', 'Direct fetch failed, launching browser fallback...');
     const context = await getBrowserContext(false);
     const page = await context.newPage();
-
     try {
         const url = `https://www.youtube.com/watch?v=${videoId}`;
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-
         await page.waitForTimeout(2000);
-
         const data = await page.evaluate(() => {
             const playerResponse = (window as any).ytInitialPlayerResponse;
             if (!playerResponse) return null;
@@ -125,142 +91,72 @@ async function fetchTranscriptWithPlaywright(videoId: string, requestedLang?: st
                 captionTracks: playerResponse.captions?.playerCaptionsTracklistRenderer?.captionTracks || [],
             };
         });
-
-        if (!data || !data.captionTracks || data.captionTracks.length === 0) {
-            throw new Error('Transcripts disabled or no caption tracks found in browser.');
-        }
-
+        if (!data || !data.captionTracks || data.captionTracks.length === 0) throw new Error('Transcripts disabled');
         const { track, translate, targetLang } = selectTrack(data.captionTracks, requestedLang);
         const urlObj = new URL(track.baseUrl);
         urlObj.searchParams.set('fmt', 'srv1');
-        if (translate && targetLang) {
-            urlObj.searchParams.set('tlang', targetLang);
-        }
+        if (translate && targetLang) urlObj.searchParams.set('tlang', targetLang);
         const finalUrl = urlObj.toString();
-
-        logActivity('youtube-debug', `Requesting track URL from browser: ${finalUrl}`);
-
+        logActivity('youtube-debug', `Requesting track from browser: ${finalUrl}`);
         const xmlText = await page.evaluate(async (fetchUrl) => {
             const response = await fetch(fetchUrl);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             return await response.text();
         }, finalUrl);
-
-        return {
-            title: data.title,
-            author: data.author,
-            xmlText,
-            captionTracks: data.captionTracks,
-        };
+        return { title: data.title, author: data.author, xmlText };
     } finally {
-        logActivity('youtube', 'Closing youtube tab to clean up resources.');
+        logActivity('youtube', 'Closing youtube tab.');
         await page.close().catch(() => {});
     }
 }
 
 export async function getYouTubeTranscript(target: string, lang?: string): Promise<string> {
     const videoId = extractVideoId(target);
-
     if (!videoId) {
-        logActivity('youtube-error', `Invalid YouTube URL or ID: ${target}`);
+        logActivity('youtube-error', `Invalid URL/ID: ${target}`);
         return `[ERR] Invalid YouTube URL or ID: ${target}`;
     }
-
     let title = 'Unknown Title';
     let author = 'Unknown Channel';
     let xmlText = '';
-
     try {
-        logActivity('youtube', `Fetching metadata and transcript for: ${videoId}`);
-        const watchResponse = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept-Language': 'en-US,en;q=0.9',
-            }
-        });
-
-        if (!watchResponse.ok) {
-            throw new Error(`HTTP status ${watchResponse.status}`);
-        }
-
+        logActivity('youtube', `Fetching transcript for: ${videoId}`);
+        const watchResponse = await fetch(`https://www.youtube.com/watch?v=${videoId}`, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept-Language': 'en-US,en;q=0.9' } });
+        if (!watchResponse.ok) throw new Error(`HTTP ${watchResponse.status}`);
         const html = await watchResponse.text();
         const apiKeyMatch = html.match(/"INNERTUBE_API_KEY":\s*"([a-zA-Z0-9_-]+)"/);
         const apiKey = apiKeyMatch?.[1];
-
-        if (!apiKey) {
-            throw new Error('Could not parse INNERTUBE_API_KEY from watch page.');
-        }
-
-        const playerResponse = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                context: { client: { clientName: 'ANDROID', clientVersion: '20.10.38' } },
-                videoId: videoId
-            })
-        });
-
-        if (!playerResponse.ok) {
-            throw new Error(`InnerTube player status ${playerResponse.status}`);
-        }
-
+        if (!apiKey) throw new Error('Could not parse INNERTUBE_API_KEY');
+        const playerResponse = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${apiKey}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ context: { client: { clientName: 'ANDROID', clientVersion: '20.10.38' } }, videoId }) });
+        if (!playerResponse.ok) throw new Error(`InnerTube status ${playerResponse.status}`);
         const playerData = await playerResponse.json();
-
         title = playerData.videoDetails?.title || 'Unknown Title';
         author = playerData.videoDetails?.author || 'Unknown Channel';
-
         const captionTracks = playerData.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
-        if (captionTracks.length === 0) {
-            throw new Error('No transcript tracks available on this video.');
-        }
-
-        const availableLangs = captionTracks.map((t: any) => t.languageCode);
-        logActivity('youtube-info', `Title: ${title} | Channel: ${author} | Langs: ${availableLangs.join(', ')}`);
-
+        if (captionTracks.length === 0) throw new Error('No transcript tracks');
+        logActivity('youtube-info', `Title: ${title} | Langs: ${captionTracks.map((t: any) => t.languageCode).join(', ')}`);
         const { track, translate, targetLang } = selectTrack(captionTracks, lang);
         const urlObj = new URL(track.baseUrl);
         urlObj.searchParams.set('fmt', 'srv1');
-        if (translate && targetLang) {
-            urlObj.searchParams.set('tlang', targetLang);
-            logActivity('youtube-info', `Requesting translation to: ${targetLang}`);
-        } else {
-            logActivity('youtube-info', `Using track: ${track.languageCode}`);
-        }
+        if (translate && targetLang) urlObj.searchParams.set('tlang', targetLang);
         const fetchUrl = urlObj.toString();
-
         xmlText = await fetchTranscriptXml(fetchUrl);
-        if (!xmlText || xmlText.trim().length === 0) {
-            throw new Error('Transcript content is empty.');
-        }
-
+        if (!xmlText || xmlText.trim().length === 0) throw new Error('Transcript empty');
     } catch (directError) {
-        logActivity('youtube-warning', `Direct fetch failed: ${(directError as Error).message}`);
+        logActivity('youtube-warning', `Direct failed: ${(directError as Error).message}`);
         try {
             const result = await fetchTranscriptWithPlaywright(videoId, lang);
-            title = result.title;
-            author = result.author;
-            xmlText = result.xmlText;
+            title = result.title; author = result.author; xmlText = result.xmlText;
         } catch (playwrightError) {
-            logActivity('youtube-error', `All transcript fetch methods failed.`);
-            logActivity('youtube-error', `Direct Fetch Error: ${(directError as Error).message}`);
-            logActivity('youtube-error', `Playwright Error: ${(playwrightError as Error).message}`);
+            logActivity('youtube-error', `All methods failed: Dir=${(directError as Error).message} PW=${(playwrightError as Error).message}`);
             return "Error: Could not extract transcript via any method.";
         }
     }
-
     const segments = parseTranscriptXml(xmlText);
-    if (segments.length === 0) {
-        logActivity('youtube-error', 'Transcript XML fetched but could not parse any text lines.');
-        return '[ERR] Transcript XML fetched but could not parse any text lines.';
-    }
-
+    if (segments.length === 0) return '[ERR] Could not parse transcript XML';
     const paragraphs = processTranscript(segments);
     const content = `# ${title}\n\n` + paragraphs.join('\n\n');
-
-    logActivity('youtube-success', `Successfully extracted transcript (${paragraphs.length} paragraphs).`);
-
-    // Save output
+    logActivity('youtube-success', `Extracted ${paragraphs.length} paragraphs`);
     saveOutput(`youtube_${videoId}`, content);
-
     return content;
 }
