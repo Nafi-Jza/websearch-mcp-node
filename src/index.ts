@@ -9,7 +9,7 @@ import { getYouTubeTranscript } from "./tools/youtube.js";
 import { closeBrowserContext } from "./browser.js";
 
 const server = new Server({
-    name: "WebSearch-MCP",
+    name: "nafi-websearch-mcp",
     version: "1.0.0"
 }, {
     capabilities: {
