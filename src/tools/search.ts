@@ -1,4 +1,4 @@
-import { getBrowserContext } from '../browser.js';
+import { launchBrowser } from '../browser.js';
 import { logActivity } from '../utils/logger.js';
 
 export async function runSearch(query: string): Promise<string> {
@@ -7,11 +7,11 @@ export async function runSearch(query: string): Promise<string> {
     // IMPORTANT: We MUST use headed mode (true) here.
     // Headless Chromium ignores the UI-configured custom DNS over HTTPS settings.
     // By running headed, we inherit the Secure DNS setting which bypasses Internet Positif block.
-    const context = await getBrowserContext(true);
+    const context = await launchBrowser(true);
 
-    // Always create a fresh page for the search. Reusing the default persistent tab
-    // often causes "Target page has been closed" errors due to internal Playwright behavior.
-    const page = await context.newPage();
+    // Use the default page created by launchPersistentContext, or make a new one
+    const pages = context.pages();
+    const page = pages.length > 0 ? pages[0] : await context.newPage();
 
     try {
         const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
@@ -41,8 +41,6 @@ export async function runSearch(query: string): Promise<string> {
                 const snippetEl = el.querySelector('.result__snippet');
 
                 if (titleLinkEl) {
-                    // DuckDuckGo URL is sometimes a redirect (//duckduckgo.com/l/?uddg=...),
-                    // we want to extract the actual destination if possible.
                     let url = titleLinkEl.getAttribute('href') || '';
                     if (url.includes('uddg=')) {
                         try {
@@ -68,8 +66,7 @@ export async function runSearch(query: string): Promise<string> {
         logActivity('search-error', `Search failed: ${(error as Error).message}`);
         return JSON.stringify({ error: `Search failed: ${(error as Error).message}` });
     } finally {
-        // Just close this specific search tab to clean up memory.
-        // We catch the error just in case the tab was already destroyed by a crash.
-        await page.close().catch(() => {});
+        logActivity('search', 'Closing browser context to clean up resources.');
+        await context.close().catch(() => {});
     }
 }

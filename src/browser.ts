@@ -1,12 +1,10 @@
 import { chromium, BrowserContext } from 'playwright';
 import path from 'path';
+import { logActivity } from './utils/logger.js';
 
 // Define standard paths and constants
 export const PROFILE_DIR = path.join(process.cwd(), 'browser-profile');
 export const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
-
-let browserContext: BrowserContext | null = null;
-let isHeaded = false;
 
 // Attempt to find Brave Browser based on common Windows paths
 export function getBravePath(): string | undefined {
@@ -26,67 +24,40 @@ export function getBravePath(): string | undefined {
     return undefined; // Let playwright use its bundled chromium
 }
 
-export async function getBrowserContext(headed: boolean = false): Promise<BrowserContext> {
-    // If we need headed but are running headless (or vice versa), close the current context
-    if (browserContext && isHeaded !== headed) {
-        console.log(`Switching browser context: Headed=${headed}`);
-        await browserContext.close();
-        browserContext = null;
+/**
+ * Launches a fresh persistent browser context.
+ * We no longer use a singleton to avoid "Target page/context closed" errors.
+ * Each tool call will launch and close its own browser context.
+ */
+export async function launchBrowser(headed: boolean = false): Promise<BrowserContext> {
+    const executablePath = getBravePath();
+
+    logActivity('browser', `Launching fresh persistent context... (Headed: ${headed})`);
+
+    const launchOptions: any = {
+        headless: !headed,
+        viewport: { width: 1280, height: 720 },
+        userAgent: USER_AGENT,
+        // Add some standard args to avoid detection
+        args: [
+            '--disable-blink-features=AutomationControlled',
+            '--disable-infobars',
+            '--window-position=0,0',
+            '--ignore-certificate-errors',
+            '--ignore-certificate-errors-spki-list',
+        ]
+    };
+
+    if (executablePath) {
+        launchOptions.executablePath = executablePath;
     }
 
-    if (!browserContext) {
-        const executablePath = getBravePath();
-
-        console.log(`Launching persistent context... (Headed: ${headed})`);
-        console.log(`Profile directory: ${PROFILE_DIR}`);
-
-        const launchOptions: any = {
-            headless: !headed,
-            viewport: { width: 1280, height: 720 },
-            userAgent: USER_AGENT,
-            // Add some standard args to avoid detection
-            args: [
-                '--disable-blink-features=AutomationControlled',
-                '--disable-infobars',
-                '--window-position=0,0',
-                '--ignore-certificate-errors',
-                '--ignore-certificate-errors-spki-list',
-            ]
-        };
-
-        if (executablePath) {
-            launchOptions.executablePath = executablePath;
-            console.log(`Using Brave at: ${executablePath}`);
-        } else {
-            console.log("Using default bundled Chromium");
-        }
-
-        try {
-            browserContext = await chromium.launchPersistentContext(PROFILE_DIR, launchOptions);
-            isHeaded = headed;
-            console.log("Browser context launched successfully.");
-
-            // FIX: If the user manually closes the browser window, clear the context
-            // so we don't try to reuse a dead browser on the next tool call.
-            browserContext.on('close', () => {
-                console.log("Browser context was closed.");
-                browserContext = null;
-            });
-
-        } catch (error) {
-            console.error("Failed to launch persistent context. Make sure no other instances are using this profile.");
-            console.error(error);
-            throw new Error(`Failed to launch browser: ${(error as Error).message}`);
-        }
-    }
-
-    return browserContext;
-}
-
-export async function closeBrowserContext(): Promise<void> {
-    if (browserContext) {
-        await browserContext.close();
-        browserContext = null;
-        console.log("Browser context closed.");
+    try {
+        const context = await chromium.launchPersistentContext(PROFILE_DIR, launchOptions);
+        logActivity('browser', "Browser context launched successfully.");
+        return context;
+    } catch (error) {
+        logActivity('browser-error', `Failed to launch persistent context: ${(error as Error).message}`);
+        throw new Error(`Failed to launch browser: ${(error as Error).message}`);
     }
 }

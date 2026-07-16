@@ -1,13 +1,12 @@
-import { getBrowserContext } from '../browser.js';
+import { launchBrowser } from '../browser.js';
 import { logActivity } from '../utils/logger.js';
 
 export async function openBrowser(url?: string): Promise<string> {
     logActivity('open_browser', "Opening headed browser for manual interaction...");
 
     // Pass 'true' to get a headed context
-    const context = await getBrowserContext(true);
+    const context = await launchBrowser(true);
 
-    // Try to find an existing empty page or create a new one
     const pages = context.pages();
     const page = pages.length > 0 ? pages[0] : await context.newPage();
 

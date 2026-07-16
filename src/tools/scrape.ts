@@ -1,12 +1,13 @@
-import { getBrowserContext } from '../browser.js';
+import { launchBrowser } from '../browser.js';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
 import { logActivity, saveOutput } from '../utils/logger.js';
 
 export async function scrapePage(url: string): Promise<string> {
-    const context = await getBrowserContext(false);
-    const page = await context.newPage();
+    const context = await launchBrowser(false);
+    const pages = context.pages();
+    const page = pages.length > 0 ? pages[0] : await context.newPage();
 
     try {
         logActivity('scrape', `Scraping URL: ${url}`);
@@ -65,6 +66,7 @@ export async function scrapePage(url: string): Promise<string> {
         logActivity('scrape-error', `Scraping failed: ${(error as Error).message}`);
         return `Error scraping ${url}: ${(error as Error).message}`;
     } finally {
-        await page.close();
+        logActivity('scrape', 'Closing browser context to clean up resources.');
+        await context.close().catch(() => {});
     }
 }

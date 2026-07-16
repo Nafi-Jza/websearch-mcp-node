@@ -6,7 +6,7 @@ import { runSearch } from "./tools/search.js";
 import { scrapePage } from "./tools/scrape.js";
 import { openBrowser } from "./tools/open.js";
 import { getYouTubeTranscript } from "./tools/youtube.js";
-import { closeBrowserContext } from "./browser.js";
+// Removed closeBrowserContext import since we don't have a global context anymore
 import { logActivity, saveOutput } from "./logger.js";
 
 const server = new Server({
@@ -79,9 +79,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     throw new Error("Missing or invalid 'query' argument.");
                 }
                 logActivity(`[search] query: "${args.query}"`);
-                
+
                 const result = await runSearch(args.query);
-                
+
                 try {
                     const parsedResult = JSON.parse(result);
                     if (Array.isArray(parsedResult)) {
@@ -92,7 +92,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 } catch (e) {
                     logActivity(`[search-result] : \n${result}`);
                 }
-                
+
                 return { content: [{ type: "text", text: result }] };
             }
 
@@ -101,22 +101,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                     throw new Error("Missing or invalid 'url' argument.");
                 }
                 logActivity(`[scraping] site: "${args.url}"`);
-                
+
                 const result = await scrapePage(args.url);
                 const savedPath = saveOutput('scrape', result, 'md');
-                
+
                 logActivity(`[scrape-output]: Saved to ${savedPath}\n(Preview: ${result.substring(0, 100).replace(/\n/g, ' ')}...)`);
-                
+
                 return { content: [{ type: "text", text: result }] };
             }
 
             case "open_browser": {
                 const url = args?.url && typeof args.url === 'string' ? args.url : undefined;
                 logActivity(`[opening-browser] URL: "${url || 'none'}"`);
-                
+
                 const result = await openBrowser(url);
                 logActivity(`[browser-closed] Output: ${result}`);
-                
+
                 return { content: [{ type: "text", text: result }] };
             }
 
@@ -126,12 +126,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 }
                 const lang = args.lang && typeof args.lang === 'string' ? args.lang : undefined;
                 logActivity(`[youtube-transcript] target: "${args.target}"`);
-                
+
                 const result = await getYouTubeTranscript(args.target, lang);
                 const savedPath = saveOutput('transcript', result, 'txt');
-                
+
                 logActivity(`[youtube-output]: Saved to ${savedPath}\n(Preview: ${result.substring(0, 100).replace(/\n/g, ' ')}...)`);
-                
+
                 return { content: [{ type: "text", text: result }] };
             }
 
@@ -155,8 +155,7 @@ async function run() {
 
 // Cleanup on exit
 process.on('SIGINT', async () => {
-    logActivity("Closing browser and shutting down...");
-    await closeBrowserContext();
+    logActivity("Shutting down MCP Server...");
     server.close(); process.exit(0);
 });
 
