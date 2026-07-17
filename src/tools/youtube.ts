@@ -1,4 +1,4 @@
-import { getBrowserContext } from '../browser.js';
+import { getBrowserContext, closeBrowserContext } from '../browser.js';
 import { logActivity, saveOutput } from '../utils/logger.js';
 
 function extractVideoId(target: string): string {
@@ -105,8 +105,9 @@ async function fetchTranscriptWithPlaywright(videoId: string, requestedLang?: st
         }, finalUrl);
         return { title: data.title, author: data.author, xmlText };
     } finally {
-        logActivity('youtube', 'Closing youtube tab.');
         await page.close().catch(() => {});
+        await closeBrowserContext().catch(() => {});
+        logActivity('youtube', 'Browser closed after youtube fallback.');
     }
 }
 

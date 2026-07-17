@@ -6,3 +6,4 @@ temp_output/
 test-*.json
 test-*.js
 mcp_server.config.json
+outputs/

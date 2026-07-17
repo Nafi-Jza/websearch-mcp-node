@@ -1,65 +1,80 @@
 # WebSearch MCP Server
 
-A Model Context Protocol (MCP) server that provides robust web search, scraping, and YouTube transcript extraction tools using Playwright. It bypasses basic bot detection by maintaining a persistent browser profile.
+A powerful Model Context Protocol (MCP) server that provides full-featured web searching, scraping, and YouTube transcript extraction capabilities using Playwright. 
 
-## Tools Provided
+This server allows AI assistants (like Claude via Claude Code) to autonomously search the web, read articles, and fetch video transcripts without being blocked by CAPTCHAs or regional firewalls.
 
-1. **`search`**: Searches the web using DuckDuckGo HTML and returns parsed results (Title, URL, Snippet).
-2. **`scrape`**: Navigates to a webpage, extracts the main article content (via Readability), and returns it as Markdown (via Turndown). 
-3. **`youtube_transcript`**: Extracts the transcript of a YouTube video (given a URL or ID). Tries the internal API first, and falls back to browser automation if blocked.
-4. **`open_browser`**: Opens a visible (headed) browser window. Useful for manually solving CAPTCHAs or logging into accounts (like Springer Nature, Google, etc.). The server pauses execution until you manually close the browser window, saving the state to the persistent profile for subsequent headless scraping.
+## Features
+
+- 🔍 **DuckDuckGo Search**: Headed search using Playwright to bypass aggressive bot-protection and regional blocks (e.g., Internet Positif).
+- 🕸️ **Headless Scraping**: Extracts clean Markdown from websites using Mozilla's Readability and Turndown.
+- 🎥 **YouTube Transcripts**: Fetches auto-generated or manual transcripts with a fallback to Playwright extraction if the API fails.
+- 🔓 **Manual Browser Interaction**: Allows the AI to open a headed browser window, pausing execution so you can manually solve CAPTCHAs or log into accounts.
+- 🍪 **Persistent Profiles**: Maintains a `browser-profile` to save your cookies, logins, and session state across runs.
 
 ## Prerequisites
-- Node.js (v18+)
-- Playwright browsers installed
+
+- [Node.js](https://nodejs.org/) (v18 or higher)
+- [Playwright](https://playwright.dev/)
 
 ## Installation
 
-```bash
-# Clone the repository
-git clone https://github.com/Nafi-Jza/websearch-mcp.git
-cd websearch-mcp
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/nafi-jza/websearch-mcp.git
+   cd websearch-mcp
+   ```
 
-# Install dependencies
-npm install
+2. **Install dependencies:**
+   ```bash
+   npm install
+   ```
 
-# Download Playwright browsers (required for the first run)
-npx playwright install chromium
+3. **Install Playwright browsers:**
+   ```bash
+   npx playwright install chromium
+   ```
 
-# Build the TypeScript project
-npm run build
-```
+4. **Build the project:**
+   ```bash
+   npm run build
+   ```
 
-## Adding to Claude (How to start it)
+## Configuration in Claude Code
 
-MCP servers are not run as standalone background processes. Instead, Claude (whether it's Claude Code in your terminal or the Claude Desktop App) acts as the client and **starts the server automatically** when you configure it.
-
-To connect the server to Claude Code, run this command in your terminal:
-
-```bash
-claude mcp add websearch-mcp node /absolute/path/to/websearch-mcp/dist/index.js
-```
-
-*(On Windows, use full paths with forward slashes or escaped backslashes, e.g., `node C:/Users/yourname/.../dist/index.js`)*
-
-Once you run this command, Claude Code will automatically launch the server in the background and keep it running for as long as you are using Claude. You don't need to run `npm start` manually!
-
-### Alternative: Manual Configuration
-
-If you prefer, you can manually edit your Claude configuration file (e.g., `claude_desktop_config.json` or `.claude/settings.json`):
+To add this MCP server to your Claude Code setup, edit your `~/.claude.json` or project-level `.claude.json` file:
 
 ```json
 {
   "mcpServers": {
     "websearch-mcp": {
+      "type": "stdio",
       "command": "node",
       "args": [
-        "/absolute/path/to/websearch-mcp/dist/index.js"
-      ]
+        "C:/absolute/path/to/websearch-mcp/dist/index.js"
+      ],
+      "env": {}
     }
   }
 }
 ```
+*(Make sure to replace the path with your actual absolute path to the `dist/index.js` file)*
 
-## Browser Profile
-The server uses a persistent browser profile stored in `./browser-profile/`. This allows it to retain cookies and login sessions across restarts.
+## Available Tools
+
+Once configured, the following tools will be available to the AI:
+
+- **`search`**: Search the web using DuckDuckGo.
+  - *Input*: `{ query: string }`
+- **`scrape`**: Load a webpage and extract its main content as Markdown.
+  - *Input*: `{ url: string }`
+- **`open_browser`**: Open a headed browser window to manually solve CAPTCHAs or log into sites. Pauses the MCP server until you close the browser.
+  - *Input*: `{ url?: string }`
+- **`youtube_transcript`**: Extract the transcript from a YouTube video.
+  - *Input*: `{ target: string, lang?: string }`
+
+## Architecture & How It Works
+
+- **Bot Bypass**: Playwright is used to execute searches visibly (headed) which tricks most basic bot-protection systems and DNS blocks. 
+- **Graceful Cleanup**: The server automatically manages Chromium contexts. It safely removes the default `about:blank` pages and closes browser instances strictly after automated executions to prevent memory leaks and zombie processes.
+- **Logging & Output**: All activity is logged to `activity.log` in the root directory. Markdown outputs of scrapes are saved locally to the `outputs/` directory for historical reference.

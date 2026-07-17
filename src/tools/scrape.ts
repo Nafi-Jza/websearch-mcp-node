@@ -1,11 +1,12 @@
-import { getBrowserContext } from '../browser.js';
+import { getBrowserContext, closeBrowserContext } from '../browser.js';
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import TurndownService from 'turndown';
 import { logActivity, saveOutput } from '../utils/logger.js';
 
 export async function scrapePage(url: string): Promise<string> {
-    const context = await getBrowserContext(true);
+    // Run headlessly so it doesn't pop open a window, matching original behavior
+    const context = await getBrowserContext(false);
     const page = await context.newPage();
 
     try {
@@ -52,7 +53,8 @@ export async function scrapePage(url: string): Promise<string> {
         logActivity('scrape-error', `Failed: ${(error as Error).message}`);
         return `Error scraping ${url}: ${(error as Error).message}`;
     } finally {
-        logActivity('scrape', 'Closing scrape tab.');
         await page.close().catch(() => {});
+        await closeBrowserContext().catch(() => {});
+        logActivity('scrape', 'Browser closed after scrape.');
     }
 }

@@ -1,64 +1,55 @@
-import { getBrowserContext } from '../browser.js';
-import { logActivity } from '../utils/logger.js';
+import { getBrowserContext, closeBrowserContext } from "../browser.js";
+import { logActivity } from "../utils/logger.js";
 
 export async function runSearch(query: string): Promise<string> {
-    logActivity('search', `Starting search query: "${query}"`);
-
-    // IMPORTANT: Must be headed for Secure DNS setting to apply and bypass Internet Positif
+    logActivity("search", `Starting search query: "${query}"`);
     const context = await getBrowserContext(true);
-
-    // Always create a fresh tab - never reuse pages[0] (fragile internal page)
     const page = await context.newPage();
-
     try {
         const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-        logActivity('search', `Navigating to: ${searchUrl}`);
-
-        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-
+        logActivity("search", `Navigating to: ${searchUrl}`);
+        await page.goto(searchUrl, { waitUntil: "domcontentloaded", timeout: 30000 });
         const html = await page.content();
-        if (html.includes('Internet Positif') || html.includes('trustpositif')) {
-            logActivity('search-error', `Blocked by Internet Positif`);
+        if (html.includes("Internet Positif") || html.includes("trustpositif")) {
+            logActivity("search-error", "Blocked by Internet Positif");
             return JSON.stringify({ error: "Search blocked by Internet Positif even with profile." });
         }
-
         try {
-            await page.waitForSelector('.result', { timeout: 10000 });
+            await page.waitForSelector(".result", { timeout: 10000 });
         } catch (e) {
-            logActivity('search-result', `No results found.`);
+            logActivity("search-result", "No results found.");
             return JSON.stringify([]);
         }
-
-        const results = await page.$$eval('.result', (elements: any[]) => {
+        const results = await page.$$eval(".result", (elements: any[]) => {
             return elements.map(el => {
-                const titleLinkEl = el.querySelector('.result__title a');
-                const snippetEl = el.querySelector('.result__snippet');
+                const titleLinkEl = el.querySelector(".result__title a");
+                const snippetEl = el.querySelector(".result__snippet");
                 if (titleLinkEl) {
-                    let url = titleLinkEl.getAttribute('href') || '';
-                    if (url.includes('uddg=')) {
+                    let url = titleLinkEl.getAttribute("href") || "";
+                    if (url.includes("uddg=")) {
                         try {
-                            const urlParams = new URLSearchParams(url.split('?')[1]);
-                            const actualUrl = urlParams.get('uddg');
+                            const urlParams = new URLSearchParams(url.split("?")[1]);
+                            const actualUrl = urlParams.get("uddg");
                             if (actualUrl) url = decodeURIComponent(actualUrl);
                         } catch (e) {}
                     }
                     return {
-                        title: titleLinkEl.textContent?.trim() || '',
+                        title: titleLinkEl.textContent?.trim() || "",
                         url: url,
-                        snippet: snippetEl ? snippetEl.textContent?.trim() : ''
+                        snippet: snippetEl ? snippetEl.textContent?.trim() : ""
                     };
                 }
                 return null;
             }).filter(Boolean);
         });
-
-        logActivity('search-result', `Found ${results.length} results.`);
+        logActivity("search-result", `Found ${results.length} results.`);
         return JSON.stringify(results, null, 2);
     } catch (error) {
-        logActivity('search-error', `Search failed: ${(error as Error).message}`);
+        logActivity("search-error", `Search failed: ${(error as Error).message}`);
         return JSON.stringify({ error: `Search failed: ${(error as Error).message}` });
     } finally {
-        logActivity('search', 'Closing search tab.');
         await page.close().catch(() => {});
+        await closeBrowserContext().catch(() => {});
+        logActivity("search", "Browser closed after search.");
     }
 }
